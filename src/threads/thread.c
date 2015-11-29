@@ -19,7 +19,6 @@
 #endif
 
 #ifdef VM
-#include "vm/frame.h"
 #include "vm/page.h"
 #endif
 
@@ -100,10 +99,6 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
-
-#ifdef VM
-  frame_table_init ();  
-#endif
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();

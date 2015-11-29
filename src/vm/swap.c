@@ -35,7 +35,6 @@ block_sector_t
 swap_alloc (uint8_t *addr)
 {
   ASSERT (swap_table != NULL);
-
   lock_acquire (&swap_table_lock);
   size_t sector_id = bitmap_scan_and_flip (swap_table, 0, SECTORS_PER_PAGE, SWAP_FREE);
   lock_release (&swap_table_lock);

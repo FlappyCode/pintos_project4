@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <stdarg.h>
 #include "userprog/pagedir.h"
 #include "userprog/syscall.h"
@@ -40,6 +41,7 @@ spt_destroy_func (struct hash_elem *e, void *aux UNUSED)
 {
   struct spt_entry *spe = hash_entry (e, struct spt_entry, elem);
   
+  //printf(" hhe%x \n",(int)spe->fte);
   /* Must get lock of frame first. */
   spt_lock_frame (spe);
 
@@ -130,7 +132,7 @@ spt_add (int type, uint8_t *upage, bool writable, ...)
 
   /* Try to insert the entry into the table. */
 
-  if (hash_insert(&spe->t->spt_table, &spe->elem) == NULL)
+  if (hash_insert (&spe->t->spt_table, &spe->elem) == NULL)
     return true;
   else
   { 
@@ -158,14 +160,23 @@ bool
 spt_load_page (void *upage)
 {
   ASSERT (pg_ofs (upage) == 0); /* Upage must be aligned .*/
-  struct spt_entry *spe = spt_get(upage);
+  struct spt_entry *spe = spt_get (upage);
   if (spe == NULL)
     return false;
 
-  /* Allocate a frame, immediately lock it*/
-  struct frame_table_entry *fte = frame_alloc_and_lock (spe);
-  if (fte == NULL)
+  struct frame_table_entry *fte;
+
+  /* First check whether the page is being evciting. */
+  spt_lock_frame (spe);
+  if(spe->fte == NULL)
+  {
+    /* Allocate a frame, immediately lock it. */
+    fte = frame_alloc_and_lock (spe);
+    if (fte == NULL)
       return false;
+  }
+  else
+    fte = spe->fte;
 
   /* For executable file, a page may be evicted to swap
      if it has been modified (i.e. the dirty bit is 1). After we
@@ -195,7 +206,10 @@ spt_load_page (void *upage)
       frame_release_and_free (fte);
 	    return false; 
     }
+    memset (fte->k_addr + spe->file_bytes, 0, PGSIZE - spe->file_bytes);
   }
+  else
+    memset (fte->k_addr, 0, PGSIZE);
 
   /* Set the virtual-to-physical mapping . */
   if (!install_page (spe->u_addr, fte->k_addr, spe->writable)) 

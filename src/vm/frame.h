@@ -16,9 +16,6 @@ struct frame_table_entry
 	/* Used for synchronization. */
 	/* see spt_lock_frame function in page.c */
 	struct lock l;
-
-	/* elem for list .*/
-	struct list_elem elem;
 };
 
 void frame_table_init (void);

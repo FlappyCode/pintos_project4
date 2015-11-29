@@ -188,6 +188,7 @@ process_exit (void)
   close_all ();
   close_all_mmap();
   spt_destroy (&thread_current()->spt_table);
+  
   if(cur->exec_file != NULL)
   {
     acquire_file_lock ();
