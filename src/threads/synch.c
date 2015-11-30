@@ -336,3 +336,74 @@ cond_broadcast (struct condition *cond, struct lock *lock)
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
 }
+
+void 
+shared_lock_init (struct shared_lock *sl, struct lock *l)
+{ 
+  ASSERT (sl != NULL);
+  ASSERT (l != NULL);
+
+  sl->l = l;
+  cond_init (&sl->c);
+  sl->i = 0;
+}
+
+void 
+shared_lock_acquire (struct shared_lock *sl, bool exclusive)
+{ 
+  ASSERT (lock_held_by_current_thread (sl->l));
+  if (exclusive)
+  { 
+    while (sl->i != 0) 
+      cond_wait (&sl->c, sl->l); 
+    sl->i = -1; 
+  }
+  else
+  {
+    while (sl->i < 0) 
+      cond_wait (&sl->c, sl->l); 
+    sl->i++;
+  }
+}
+
+bool 
+shared_lock_try_acquire (struct shared_lock *sl, bool exclusive)
+{ 
+  ASSERT (lock_held_by_current_thread (sl->l));
+  if (exclusive)
+  { 
+    if (sl->i == 0)
+    {  
+      sl->i = -1;
+      return true;
+    }
+    else
+      return false; 
+  }
+  else
+  {
+    if (sl->i >= 0) 
+    { 
+      sl->i++;
+      return true;
+    }
+    else
+      return false;
+  }
+}
+
+void 
+shared_lock_release (struct shared_lock *sl, bool exclusive)
+{ 
+  ASSERT (lock_held_by_current_thread (sl->l));
+  if (exclusive)
+  { 
+    sl->i = 0; 
+    cond_broadcast (&sl->c, sl->l); 
+  }
+  else
+  {
+    if (!--sl->i) 
+      cond_signal (&sl->c, sl->l); 
+  }
+}
