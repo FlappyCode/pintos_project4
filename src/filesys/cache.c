@@ -16,6 +16,7 @@ struct cache_entry
 	uint8_t data[BLOCK_SECTOR_SIZE];
 	struct lock l;
 	struct shared_lock sl;
+	struct lock has_data_lock;
 };
 
 #define CACHE_SIZE 64
@@ -35,6 +36,7 @@ void cache_init (void)
   	ce->sector = (block_sector_t) -1;
   	lock_init (&ce->l);
   	shared_lock_init (&ce->sl, &ce->l);
+  	lock_init (&ce->has_data_lock);
   	ce->accessed = false;
   	ce->dirty = false;
   	ce->has_data = false;
@@ -170,14 +172,20 @@ cache_get_data (struct cache_entry* ce, bool zero)
 	{	
 		memset (ce->data, 0, BLOCK_SECTOR_SIZE);
 		ce->dirty = true;
+		ce->has_data = true;
 	}
-	else if (!ce->has_data) 
+	else
   {	
-  	block_read (fs_device, ce->sector, ce->data);
-  	ce->dirty = false; 
+  	lock_acquire (&ce->has_data_lock);
+  	if (!ce->has_data)
+  	{ 
+  		block_read (fs_device, ce->sector, ce->data);
+  		ce->dirty = false;
+  		ce->has_data = true;
+  	} 
+  	lock_release (&ce->has_data_lock);
   }
 
-  ce->has_data = true;
   ce->accessed = true;
   return ce->data;
 }

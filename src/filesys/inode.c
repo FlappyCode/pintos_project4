@@ -275,7 +275,7 @@ inode_remove (struct inode *inode)
    The block returned will be locked, normally non-exclusively,
    but a newly allocated block will have an exclusive lock. */
 static bool
-read_block (struct inode *inode, off_t offset, bool extend, struct cache_entry **ce_result, bool *extended) 
+read_block (struct inode *inode, off_t offset, bool is_write, struct cache_entry **ce_result) 
 {
   ASSERT (inode != NULL);
   ASSERT (offset >= 0);
@@ -326,7 +326,7 @@ read_block (struct inode *inode, off_t offset, bool extend, struct cache_entry *
       if (this_level == level-1) 
       {
         cache_unlock (ce, false);
-        *ce_result = cache_alloc_and_lock (*next_sector, false);
+        *ce_result = cache_alloc_and_lock (*next_sector, is_write);
         return true;
       }
       
@@ -338,7 +338,7 @@ read_block (struct inode *inode, off_t offset, bool extend, struct cache_entry *
     
     cache_unlock (ce, false);
 
-    if (!extend) 
+    if (!is_write) 
     {
       *ce_result = NULL;
       return true;
@@ -373,7 +373,6 @@ read_block (struct inode *inode, off_t offset, bool extend, struct cache_entry *
     if (this_level == level-1) 
     {
       *ce_result = next_ce;
-      *extended = true;
       return true;
     }
 
@@ -411,7 +410,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
         break;
 
       struct cache_entry *ce;
-      if (!read_block (inode, offset, false, &ce, NULL))
+      if (!read_block (inode, offset, false, &ce))
         break;
 
       if (ce == NULL)
@@ -466,14 +465,13 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
         break;
 
       struct cache_entry *ce;
-      bool extended;
-      if (!read_block (inode, offset, true, &ce, &extended))
+      if (!read_block (inode, offset, true, &ce))
         break;
 
       uint8_t *data = cache_get_data (ce, false);
       memcpy (data + sector_ofs, buffer + bytes_written, chunk_size);
       cache_mark_dirty (ce);
-      cache_unlock (ce, extended);
+      cache_unlock (ce, true);
 
       /* Advance. */
       size -= chunk_size;

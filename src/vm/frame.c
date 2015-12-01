@@ -144,18 +144,8 @@ frame_alloc_and_lock (struct spt_entry *spe)
           else
           {
             /* Modified mmap file page will be written to file. */
-            /* Use try acquire lock to avoid dead lock. */
-            if(try_acquire_file_lock ())
-            {
-              success = file_write_at (spe_tmp->file, fte->k_addr, spe_tmp->file_bytes,
-                spe_tmp->ofs) == (int) spe_tmp->file_bytes;
-              release_file_lock ();
-            }
-            else
-            { 
-              /* Can't get the lock, skip this frame to try to evict another. */
-              success = false;
-            }
+            success = file_write_at (spe_tmp->file, fte->k_addr, spe_tmp->file_bytes,
+              spe_tmp->ofs) == (int) spe_tmp->file_bytes;
           }
         }
         else
