@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "filesys/free-map.h"
 #include <bitmap.h>
 #include <debug.h>
@@ -73,7 +74,14 @@ void
 free_map_create (void) 
 {
   /* Create inode. */
-  if (!inode_create (FREE_MAP_SECTOR, bitmap_file_size (free_map)))
+  bool success;
+  struct inode *inode = inode_create (FREE_MAP_SECTOR, false);  
+  if (inode != NULL)
+    success = inode_write_at (inode, "\0", 1, bitmap_file_size (free_map) - 1) == 1;
+  else
+    success = false;
+  
+  if (!success)
     PANIC ("free map creation failed");
 
   /* Write bitmap to file. */

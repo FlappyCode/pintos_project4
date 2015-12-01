@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "filesys/file.h"
 #include <debug.h>
 #include "filesys/inode.h"

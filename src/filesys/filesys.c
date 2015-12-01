@@ -48,12 +48,26 @@ filesys_done (void)
 bool
 filesys_create (const char *name, off_t initial_size) 
 {
+  ASSERT (initial_size >= 0);
   block_sector_t inode_sector = 0;
   struct dir *dir = dir_open_root ();
   bool success = (dir != NULL
-                  && free_map_allocate (1, &inode_sector)
-                  && inode_create (inode_sector, initial_size)
-                  && dir_add (dir, name, inode_sector));
+                  && free_map_allocate (1, &inode_sector));
+
+  if (success)
+  {
+    struct inode *inode = inode_create (inode_sector, false);
+    if (inode != NULL)
+    {
+      if (initial_size > 0)
+        success = (inode_write_at (inode, "\0", 1, initial_size - 1) == 1);
+      if (success)
+        success = dir_add (dir, name, inode_sector);
+    }
+    else
+      success = false;
+  }
+
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);
   dir_close (dir);
