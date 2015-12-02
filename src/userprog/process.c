@@ -357,7 +357,8 @@ load (struct exec_msg *msg, void (**eip) (void), void **esp)
 
   /* Open executable file. */
   acquire_file_lock ();
-  file = filesys_open (msg->prog_name);
+  file = file_open(filesys_open (msg->prog_name));
+  
   if (file != NULL) 
     file_deny_write (file); /* deny write */
   else 

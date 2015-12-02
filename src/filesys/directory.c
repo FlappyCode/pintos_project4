@@ -229,23 +229,23 @@ dir_remove (struct dir *dir, const char *name)
 
   if (inode_is_dir(inode)){
 
-  /*can't remove the directory if it's opened */
-    if (inode->open_cnt > 1)
+    /*can't remove the directory if it's opened */
+    if (inode_open_cnt(inode) > 1)
       goto done;
-
+    
     /*can't remove the directory if it's not empty */
     int num_dir = 0;
     ofs = 0;
     while(inode_read_at(inode, &e, sizeof e, ofs) == sizeof e)
-    {
-      if (e.in_use)
-        num_dir++;
-      if (num_dir >= 3)
-        goto done;
-      ofs += sizeof e;
-    }
+      {
+	if (e.in_use)
+	  num_dir++;
+	if (num_dir >= 3)
+	  goto done;
+	ofs += sizeof e;
+      }
   }
-
+  
   /* Erase directory entry. */
   e.in_use = false;
   if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e) 
@@ -273,7 +273,7 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
     {
       dir->pos += sizeof e;
       if (e.in_use && (strcmp(e.name, ".")!=0) 
-          && (strcmp(e.name, "..")!=0)
+          && (strcmp(e.name, "..")!=0))
         {
           strlcpy (name, e.name, NAME_MAX + 1);
           return true;

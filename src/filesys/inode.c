@@ -97,6 +97,15 @@ bool inode_is_dir(struct inode *inode)
   return (type == 1);
 }
 
+int inode_open_cnt(struct inode *inode)
+{
+  int value;
+  lock_acquire(&open_inodes_lock);
+  value = inode->open_cnt;
+  lock_release(&open_inodes_lock);
+  return value;
+}
+
 /* Reads an inode from SECTOR
    and returns a `struct inode' that contains it.
    Returns a null pointer if memory allocation fails. */

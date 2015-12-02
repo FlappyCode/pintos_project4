@@ -120,7 +120,7 @@ get_directory_from_path(char *file_name, char *full_path)
 static bool is_root(const char *name) 
 {
   char temp_name[NAME_MAX+1];
-  char *temp_path = name;
+  char *temp_path = (char *)name;
   if (name[0] == '/' && next_string(temp_name, &temp_path) == 0)
     return true;
   return false;
@@ -136,7 +136,7 @@ filesys_done (void)
   free_map_close ();
 }
 
-static struct *inode
+static struct inode*
 file_create(block_sector_t inode_sector,off_t initial_size)
 {
   struct inode *inode = inode_create (inode_sector,false);
@@ -157,9 +157,10 @@ file_create(block_sector_t inode_sector,off_t initial_size)
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
 bool
-filesys_create (const char *name, off_t initial_size, bool isdir) 
+filesys_create (const char *name_, off_t initial_size, bool isdir) 
 {
   block_sector_t inode_sector = 0;
+  char *name = (char *)name_;
   struct inode *inode = NULL;
   char file_name[NAME_MAX+1];
   struct dir *dir = get_directory_from_path(file_name, name);
@@ -203,8 +204,9 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
 struct inode *
-filesys_open (const char *name)
+filesys_open (const char *name_)
 {
+  char *name = (char *)name_;
   if (is_root(name))
     return inode_open (ROOT_DIR_SECTOR);
   else
@@ -235,8 +237,9 @@ filesys_open (const char *name)
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
 bool
-filesys_remove (const char *name) 
+filesys_remove (const char *name_) 
 {
+  char *name = (char *)name_;
   char file_name[NAME_MAX+1];
   struct dir *dir = get_directory_from_path(file_name, name);
   if (dir == NULL)
@@ -257,7 +260,7 @@ bool
 filesys_chdir (const char *name) 
 {
   bool success = false;
-  struct dir *dir = dir_open(filesys_open (const char *name));
+  struct dir *dir = dir_open(filesys_open (name));
   if (dir != NULL)
   {
     dir_close(thread_current()->working_dir);

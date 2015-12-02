@@ -30,7 +30,6 @@ static void check_user_read (const uint8_t *vaddr, size_t size);
 static void check_user_write (uint8_t *vaddr, size_t size);
 static inline void* get_arg (void *sp, int n);
 static void check_user_str (const char *str);
-static struct file* get_file (int fd);
 
 /* Reads a byte at user virtual address UADDR.
    UADDR must be below PHYS_BASE.
@@ -286,7 +285,7 @@ syscall_handler (struct intr_frame *f)
     case SYS_READDIR:
     {
       int fd = * (int *) get_arg (sp, 1);
-      const char *dir = * (const char **) get_arg (sp, 2);
+      char *dir = * (char **) get_arg (sp, 2);
       check_user_str (dir);
       f->eax = readdir(fd, dir);
       break;
@@ -309,7 +308,7 @@ syscall_handler (struct intr_frame *f)
 void 
 halt (void)
 {
-	shutdown_power_off ();
+  shutdown_power_off ();
 }
 
 void 
@@ -355,7 +354,7 @@ remove (const char *file)
 static int
 add_file (struct file *f)
 {
-  if (f = NULL)
+  if (f == NULL)
     return -1;
   struct thread *t = thread_current ();
   struct process_file *pf = malloc (sizeof (struct process_file));
@@ -373,7 +372,7 @@ add_file (struct file *f)
 static int
 add_directory (struct dir *dir)
 {
-  if (dir = NULL)
+  if (dir == NULL)
     return -1;
   struct thread *t = thread_current ();
   struct process_file *pf = malloc (sizeof (struct process_file));
@@ -489,9 +488,9 @@ seek (int fd, unsigned position)
 { 
   struct process_file *pf = get_process_file (fd);
   if (pf == NULL)
-    return -1;
+    return;
   if (pf->file == NULL)
-    return -1;
+    return;
   acquire_file_lock ();
   file_seek(pf->file, position);
   release_file_lock ();
