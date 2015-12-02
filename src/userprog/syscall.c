@@ -159,10 +159,8 @@ syscall_handler (struct intr_frame *f)
 #ifdef VM
   thread_current()->saved_esp = f->esp;
 #endif
-
   void *sp = (void *) f->esp;
   check_user_read (sp, 4); /* First check esp. */
-  
   /* Will check every argument before entering function. */
   switch (* (int *) sp)
   {

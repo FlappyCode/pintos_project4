@@ -73,12 +73,21 @@ get_directory_from_path(char *file_name, char *full_path)
     return directory;
 
   if(full_path[0] == '/') /*absolute path */
-    directory = dir_open_root ();
+    {
+      //printf("full path\n");
+      directory = dir_open_root ();
+    }
   else
-    directory = dir_reopen(thread_current()->working_dir);
+    {
+      //printf("relative\n");
+      if(thread_current()->working_dir == NULL)
+	{
+	  thread_current()->working_dir = dir_open_root ();
+	}
+      directory = dir_reopen(thread_current()->working_dir);
+    }
   if (directory == NULL)
     return NULL;
-
   char string[NAME_MAX+1];
   char temp_name[NAME_MAX+1];
   char *fp = full_path;
@@ -159,6 +168,7 @@ file_create(block_sector_t inode_sector,off_t initial_size)
 bool
 filesys_create (const char *name_, off_t initial_size, bool isdir) 
 {
+  //printf("name = %s, dir=%d\n", name_, isdir);
   block_sector_t inode_sector = 0;
   char *name = (char *)name_;
   struct inode *inode = NULL;
@@ -169,14 +179,16 @@ filesys_create (const char *name_, off_t initial_size, bool isdir)
   if (success)
   {
     if (isdir)
-    {
-      if (dir_create (inode_sector, inode_get_inumber(dir_get_inode (dir))))
       {
-        inode = inode_open(inode_sector);
+	if (dir_create (inode_sector, inode_get_inumber(dir_get_inode (dir))))
+	  {
+	    inode = inode_open(inode_sector);
+	  }
       }
-    } else {
-      inode = file_create(inode_sector, initial_size);
-    }
+    else
+      {
+	inode = file_create(inode_sector, initial_size);
+      }
     if (inode != NULL)
     {
       if (dir_add(dir, file_name, inode_sector))
@@ -194,7 +206,7 @@ filesys_create (const char *name_, off_t initial_size, bool isdir)
   }
 
   dir_close (dir);
-
+  //printf("done create\n");
   return success;
 }
 
