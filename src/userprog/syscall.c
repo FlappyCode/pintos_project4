@@ -13,6 +13,8 @@
 #include "filesys/filesys.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
+#include "filesys/directory.h"
+#include "filesys/inode.h"
 #include "vm/frame.h"
 #include "vm/page.h"
 
@@ -267,6 +269,40 @@ syscall_handler (struct intr_frame *f)
       munmap(id);
       break;
     }
+    case SYS_CHDIR:
+    {
+      const char *dir = * (const char **) get_arg (sp, 1);
+      check_user_str (dir);
+      f->eax = chdir(dir);
+      break;
+    }
+    case SYS_MKDIR:
+    {
+      const char *dir = * (const char **) get_arg (sp, 1);
+      check_user_str (dir);
+      f->eax = mkdir(dir);
+      break;
+    }
+    case SYS_READDIR:
+    {
+      int fd = * (int *) get_arg (sp, 1);
+      const char *dir = * (const char **) get_arg (sp, 2);
+      check_user_str (dir);
+      f->eax = readdir(fd, dir);
+      break;
+    }
+    case SYS_ISDIR:
+    {
+      int fd = * (int *) get_arg (sp, 1);
+      f->eax = isdir(fd);
+      break;
+    }
+    case SYS_INUMBER:
+    {
+      int fd = * (int *) get_arg (sp, 1);
+      f->eax = inumber(fd);
+      break;
+    }
   }
 }
 
@@ -301,7 +337,7 @@ bool
 create (const char *file, unsigned initial_size)
 { 
   acquire_file_lock ();
-  int success = filesys_create (file, initial_size);
+  int success = filesys_create (file, initial_size, false);
   release_file_lock ();
   return success;
 }
@@ -319,11 +355,32 @@ remove (const char *file)
 static int
 add_file (struct file *f)
 {
+  if (f = NULL)
+    return -1;
   struct thread *t = thread_current ();
   struct process_file *pf = malloc (sizeof (struct process_file));
   if (!pf)
     return -1;
   pf->file = f;
+  pf->dir = NULL;
+  pf->fd = t->fd;
+  t->fd++;
+  list_push_back (&t->file_list, &pf->elem);
+  return pf->fd;
+}
+
+/* add directory to the file list of current thread */
+static int
+add_directory (struct dir *dir)
+{
+  if (dir = NULL)
+    return -1;
+  struct thread *t = thread_current ();
+  struct process_file *pf = malloc (sizeof (struct process_file));
+  if (!pf)
+    return -1;
+  pf->file = NULL;
+  pf->dir = dir;
   pf->fd = t->fd;
   t->fd++;
   list_push_back (&t->file_list, &pf->elem);
@@ -331,8 +388,8 @@ add_file (struct file *f)
 }
 
 /* return file based on the given fd */
-static struct file* 
-get_file (int fd)
+static struct process_file* 
+get_process_file (int fd)
 {	
   struct thread *t = thread_current ();
   struct list_elem *e;
@@ -341,7 +398,7 @@ get_file (int fd)
   {
     pf = list_entry (e, struct process_file, elem);
     if (pf->fd == fd)
-      return pf->file;
+      return pf;
   }
   return NULL;
 }
@@ -349,24 +406,35 @@ get_file (int fd)
 int 
 open (const char *file)
 { 
+  int fd;
   acquire_file_lock ();
-  struct file *f = filesys_open (file);
-  release_file_lock ();
-  if (f == NULL)
+  struct inode *inode = filesys_open (file);
+  if (inode == NULL)
+  {
+    release_file_lock ();
     return -1;
-  
-  int fd = add_file (f);
+  }
+  else
+  {
+    if (!inode_is_dir(inode))
+      fd = add_file(file_open(inode));
+    else
+      fd = add_directory(dir_open(inode));
+  }
+  release_file_lock ();
   return fd;
 }
 
 int 
 filesize (int fd)
 { 
-  struct file *f = get_file (fd);
-  if (f == NULL)
+  struct process_file *pf = get_process_file (fd);
+  if (pf == NULL)
+    return -1;
+  if (pf->file == NULL)
     return -1;
   acquire_file_lock ();
-  int len = file_length (f);
+  int len = file_length (pf->file);
   release_file_lock ();
   return len;
 }
@@ -385,11 +453,13 @@ read (int fd, void *buffer, unsigned length)
     }
     return length;
   }
-  struct file *f = get_file(fd);
-  if (f == NULL) 
+  struct process_file *pf = get_process_file (fd);
+  if (pf == NULL)
+    return -1;
+  if (pf->file == NULL)
     return -1;
   acquire_file_lock ();
-  int bytes = file_read(f, buffer, length);
+  int bytes = file_read(pf->file, buffer, length);
   release_file_lock ();
   return bytes;
 }
@@ -403,11 +473,13 @@ write (int fd, const void *buffer, unsigned length)
     return length;
   }
 
-  struct file *f = get_file(fd);
-  if (f == NULL) 
+  struct process_file *pf = get_process_file (fd);
+  if (pf == NULL)
+    return -1;
+  if (pf->file == NULL)
     return -1;
   acquire_file_lock ();
-  int bytes = file_write(f, buffer, length);
+  int bytes = file_write(pf->file, buffer, length);
   release_file_lock ();
   return bytes;
 }
@@ -415,11 +487,13 @@ write (int fd, const void *buffer, unsigned length)
 void 
 seek (int fd, unsigned position)
 { 
-  struct file *f = get_file(fd);
-  if (f == NULL) 
-    return;
+  struct process_file *pf = get_process_file (fd);
+  if (pf == NULL)
+    return -1;
+  if (pf->file == NULL)
+    return -1;
   acquire_file_lock ();
-  file_seek(f, position);
+  file_seek(pf->file, position);
   release_file_lock ();
   return;
 }
@@ -427,11 +501,13 @@ seek (int fd, unsigned position)
 unsigned 
 tell (int fd)
 { 
-  struct file *f = get_file(fd);
-  if (f == NULL) 
+  struct process_file *pf = get_process_file (fd);
+  if (pf == NULL)
+    return -1;
+  if (pf->file == NULL)
     return -1;
   acquire_file_lock ();
-  unsigned result = file_tell (f);
+  unsigned result = file_tell (pf->file);
   release_file_lock ();
   return result;
 }
@@ -450,6 +526,7 @@ close (int fd)
   	{
   	  acquire_file_lock ();
       file_close (pf->file);
+      dir_close(pf->dir);
       release_file_lock ();
       list_remove (&pf->elem);
       free (pf);
@@ -474,6 +551,7 @@ close_all (void)
   	next = list_next (e);
   	pf = list_entry (e, struct process_file, elem);
   	file_close (pf->file);
+    dir_close(pf->dir);
     list_remove (&pf->elem);
     free (pf);
     e = next;
@@ -486,7 +564,12 @@ close_all (void)
 /* Mmap system call. */
 mapid_t mmap (int fd, void *addr)
 {
-  struct file *f = get_file (fd);
+  struct process_file *pf = get_process_file (fd);
+  if (pf == NULL)
+    return -1;
+  if (pf->file == NULL)
+    return -1;
+  struct file *f = pf->file;
   struct thread *t = thread_current();
   
   /* Check fd and file pointer .*/
@@ -657,4 +740,46 @@ void close_all_mmap(void)
   if (prev_file != NULL)
     file_close(prev_file);
   release_file_lock ();
+}
+
+
+bool chdir (const char *dir)
+{
+  return filesys_chdir(dir);
+}
+
+bool mkdir (const char *dir)
+{
+  return filesys_create(dir, 0, true);
+}
+
+bool readdir (int fd, char *name)
+{
+  struct process_file *pf = get_process_file (fd);
+  return dir_readdir(pf->dir, name);
+}
+
+bool isdir (int fd)
+{
+  struct process_file *pf = get_process_file (fd);
+  return (pf->dir != NULL);
+}
+
+int inumber (int fd)
+{
+  struct process_file *pf = get_process_file (fd);
+  struct inode *inode = NULL;
+  if (pf == NULL)
+    return -1;
+  if (pf->dir != NULL)
+  {
+    inode = dir_get_inode(pf->dir);
+  }
+  else
+  {
+    inode = file_get_inode(pf->file);
+  }
+  if (inode == NULL)
+    return -1;
+  return inode_get_inumber(inode);
 }

@@ -41,5 +41,10 @@ void close_all (void);
 mapid_t mmap (int fd, void *addr);
 void munmap (mapid_t mapping);
 void close_all_mmap(void);
+bool chdir (const char *dir);
+bool mkdir (const char *dir);
+bool readdir (int fd, char *name);
+bool isdir (int fd);
+int inumber (int fd);
 
 #endif /* userprog/syscall.h */

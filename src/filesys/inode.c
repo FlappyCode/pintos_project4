@@ -87,6 +87,16 @@ inode_create (block_sector_t sector, bool is_dir)
   return inode;
 }
 
+bool inode_is_dir(struct inode *inode)
+{
+  if (inode == NULL) return false;
+  struct cache_entry *ce = cache_alloc_and_lock (inode->sector, false);
+  struct inode_disk *disk_inode = cache_get_data (ce, false);
+  int type = disk_inode->type;
+  cache_unlock (ce, false);
+  return (type == 1);
+}
+
 /* Reads an inode from SECTOR
    and returns a `struct inode' that contains it.
    Returns a null pointer if memory allocation fails. */

@@ -11,6 +11,7 @@
 #include "userprog/tss.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
+#include "filesys/inode.h"
 #include "filesys/filesys.h"
 #include "threads/flags.h"
 #include "threads/init.h"
@@ -40,11 +41,20 @@ process_execute (const char *file_name)
 
   tid_t tid;
 
+  struct dir *working_dir = thread_current()->working_dir;
+  if (working_dir == NULL)
+    msg->working_dir = dir_open_root();
+  else
+    msg->working_dir = dir_reopen(working_dir);
+  if (msg->working_dir == NULL)
+    return TID_ERROR;
+
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   msg->fn_copy = palloc_get_page (0);
   if (msg->fn_copy == NULL)
   {
+    dir_close(msg->working_dir);
     free(msg);
     return TID_ERROR;
   }
@@ -55,6 +65,7 @@ process_execute (const char *file_name)
   msg->prog_name = malloc ((len + 1) * sizeof (char));
   if (msg->prog_name == NULL)
   {
+    dir_close(msg->working_dir);
     free(msg);
     return TID_ERROR;
   }
@@ -69,7 +80,9 @@ process_execute (const char *file_name)
   sema_down (&msg->load_sema);/* wait for the new process to load */
 
   if (msg->load_complete == false)
+  {
     tid = TID_ERROR; 
+  }
   palloc_free_page (msg->fn_copy);
   free (msg->prog_name);
   free (msg);
@@ -85,6 +98,7 @@ start_process (void *aux)
   struct intr_frame if_;
   bool success;
 
+  thread_current()->working_dir = msg->working_dir;
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;

@@ -20,6 +20,7 @@ struct process_info {
 /* Struct used for managing files that a process has. */
 struct process_file{
   struct file *file;
+  struct dir *dir;
   int fd;
   struct list_elem elem;
 };
@@ -32,6 +33,7 @@ struct exec_msg
   char *prog_name;
   struct semaphore load_sema; /*semaphore to indicate that process has finished loading */
   bool load_complete;
+  struct dir *working_dir;
 };
 
 tid_t process_execute (const char *file_name);

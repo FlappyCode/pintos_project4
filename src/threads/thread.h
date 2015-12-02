@@ -114,6 +114,8 @@ struct thread
     /* If the page fault occurs in the kernel, must save the esp. */
     void* saved_esp; 
 #endif
+
+    struct dir *working_dir; 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

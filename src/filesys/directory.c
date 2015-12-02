@@ -24,12 +24,31 @@ struct dir_entry
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
 bool
-dir_create (block_sector_t sector, size_t entry_cnt)
+dir_create (block_sector_t sector, block_sector_t parent)
 {
-  struct inode *inode = inode_create (sector, true);
-  if (inode != NULL)
-    return inode_write_at (inode, "\0", 1, entry_cnt * sizeof (struct dir_entry) - 1) == 1;
-  return false;
+  struct inode *inode = inode_create(sector,true);
+  if (inode == NULL) return false;
+
+  /*create default entries for . and ..*/
+  struct dir_entry dot;
+  struct dir_entry dotdot;
+  dot.inode_sector = sector;
+  dotdot.inode_sector = parent;
+  dot.in_use = true;
+  dotdot.in_use = true;
+  strlcpy (dot.name, ".", sizeof dot.name);
+  strlcpy (dotdot.name, "..", sizeof dotdot.name);
+
+  /*write the entries to inode*/
+  if ((inode_write_at(inode, &dot, sizeof dot, 0) != sizeof dot)
+    || inode_write_at(inode, &dotdot, sizeof dotdot, sizeof dot) != sizeof dotdot)
+  {
+    inode_remove(inode);
+    inode_close(inode);
+    return false;
+  }
+  inode_close(inode);
+  return true;
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -38,7 +57,7 @@ struct dir *
 dir_open (struct inode *inode) 
 {
   struct dir *dir = calloc (1, sizeof *dir);
-  if (inode != NULL && dir != NULL)
+  if (inode != NULL && dir != NULL && inode_is_dir(inode))
     {
       dir->inode = inode;
       dir->pos = 0;
@@ -195,6 +214,10 @@ dir_remove (struct dir *dir, const char *name)
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
+  /*can't remove default directories */
+  if(strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+    return false;
+
   /* Find directory entry. */
   if (!lookup (dir, name, &e, &ofs))
     goto done;
@@ -203,6 +226,25 @@ dir_remove (struct dir *dir, const char *name)
   inode = inode_open (e.inode_sector);
   if (inode == NULL)
     goto done;
+
+  if (inode_is_dir(inode)){
+
+  /*can't remove the directory if it's opened */
+    if (inode->open_cnt > 1)
+      goto done;
+
+    /*can't remove the directory if it's not empty */
+    int num_dir = 0;
+    ofs = 0;
+    while(inode_read_at(inode, &e, sizeof e, ofs) == sizeof e)
+    {
+      if (e.in_use)
+        num_dir++;
+      if (num_dir >= 3)
+        goto done;
+      ofs += sizeof e;
+    }
+  }
 
   /* Erase directory entry. */
   e.in_use = false;
@@ -225,11 +267,13 @@ bool
 dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 {
   struct dir_entry e;
-
+  if (dir == NULL)
+    return false;
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
       dir->pos += sizeof e;
-      if (e.in_use)
+      if (e.in_use && (strcmp(e.name, ".")!=0) 
+          && (strcmp(e.name, "..")!=0)
         {
           strlcpy (name, e.name, NAME_MAX + 1);
           return true;
