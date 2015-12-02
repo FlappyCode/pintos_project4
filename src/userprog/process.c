@@ -201,6 +201,7 @@ process_exit (void)
   /* close all files opened and the exectuable file */
   close_all ();
   close_all_mmap();
+  dir_close(thread_current()->working_dir);
   spt_destroy (&thread_current()->spt_table);
   
   if(cur->exec_file != NULL)

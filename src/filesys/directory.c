@@ -146,10 +146,12 @@ dir_lookup (const struct dir *dir, const char *name,
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
+  inode_acquire_lock(dir->inode);
   if (lookup (dir, name, &e, NULL))
     *inode = inode_open (e.inode_sector);
   else
     *inode = NULL;
+  inode_release_lock(dir->inode);
 
   return *inode != NULL;
 }
@@ -175,6 +177,7 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
     return false;
 
   /* Check that NAME is not in use. */
+  inode_acquire_lock(dir->inode);
   if (lookup (dir, name, NULL, NULL))
     goto done;
 
@@ -197,6 +200,7 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
   success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
 
  done:
+  inode_release_lock(dir->inode);
   return success;
 }
 
@@ -217,6 +221,8 @@ dir_remove (struct dir *dir, const char *name)
   /*can't remove default directories */
   if(strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
     return false;
+
+  inode_acquire_lock(dir->inode);
 
   /* Find directory entry. */
   if (!lookup (dir, name, &e, &ofs))
@@ -256,6 +262,7 @@ dir_remove (struct dir *dir, const char *name)
   success = true;
 
  done:
+  inode_release_lock(dir->inode);
   inode_close (inode);
   return success;
 }
@@ -269,15 +276,18 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
   struct dir_entry e;
   if (dir == NULL)
     return false;
+  inode_acquire_lock(dir->inode);
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
       dir->pos += sizeof e;
       if (e.in_use && (strcmp(e.name, ".")!=0) 
           && (strcmp(e.name, "..")!=0))
         {
+          inode_release_lock(dir->inode);
           strlcpy (name, e.name, NAME_MAX + 1);
           return true;
         } 
     }
+  inode_release_lock(dir->inode);
   return false;
 }

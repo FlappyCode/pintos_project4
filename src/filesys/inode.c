@@ -48,6 +48,7 @@ struct inode
     int open_cnt;                       /* Number of openers. */
     bool removed;                       /* True if deleted, false otherwise. */
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
+    struct lock inode_lock;
   };
 
 /* List of open inodes, so that opening a single inode twice
@@ -143,8 +144,19 @@ inode_open (block_sector_t sector)
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
+  lock_init(&inode->inode_lock);
   lock_release (&open_inodes_lock);
   return inode;
+}
+
+void inode_acquire_lock(struct inode *inode)
+{
+  lock_acquire(&inode->inode_lock);
+}
+
+void inode_release_lock(struct inode *inode)
+{
+  lock_release(&inode->inode_lock);
 }
 
 /* Reopens and returns INODE. */
