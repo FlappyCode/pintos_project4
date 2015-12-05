@@ -214,7 +214,6 @@ dir_remove (struct dir *dir, const char *name)
   struct inode *inode = NULL;
   bool success = false;
   off_t ofs;
-
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
@@ -227,31 +226,30 @@ dir_remove (struct dir *dir, const char *name)
   /* Find directory entry. */
   if (!lookup (dir, name, &e, &ofs))
     goto done;
-
   /* Open inode. */
   inode = inode_open (e.inode_sector);
   if (inode == NULL)
     goto done;
 
   if (inode_is_dir(inode)){
-
     /*can't remove the directory if it's opened */
     if (inode_open_cnt(inode) > 1)
-      goto done;
+      {
+	goto done;
+      }
     
     /*can't remove the directory if it's not empty */
     int num_dir = 0;
-    ofs = 0;
-    while(inode_read_at(inode, &e, sizeof e, ofs) == sizeof e)
+    int offset = 0;
+    while(inode_read_at(inode, &e, sizeof e, offset) == sizeof e)
       {
 	if (e.in_use)
 	  num_dir++;
 	if (num_dir >= 3)
 	  goto done;
-	ofs += sizeof e;
+	offset += sizeof e;
       }
   }
-  
   /* Erase directory entry. */
   e.in_use = false;
   if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e) 

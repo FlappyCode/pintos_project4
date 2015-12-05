@@ -74,12 +74,10 @@ get_directory_from_path(char *file_name, char *full_path)
 
   if(full_path[0] == '/') /*absolute path */
     {
-      //printf("full path\n");
       directory = dir_open_root ();
     }
   else
     {
-      //printf("relative\n");
       if(thread_current()->working_dir == NULL)
 	{
 	  thread_current()->working_dir = dir_open_root ();
