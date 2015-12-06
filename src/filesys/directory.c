@@ -41,7 +41,8 @@ dir_create (block_sector_t sector, block_sector_t parent)
 
   /*write the entries to inode*/
   if ((inode_write_at(inode, &dot, sizeof dot, 0) != sizeof dot)
-    || inode_write_at(inode, &dotdot, sizeof dotdot, sizeof dot) != sizeof dotdot)
+    || inode_write_at(inode, &dotdot, sizeof dotdot, sizeof dot) 
+    != sizeof dotdot)
   {
     inode_remove(inode);
     inode_close(inode);

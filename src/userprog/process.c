@@ -41,6 +41,7 @@ process_execute (const char *file_name)
 
   tid_t tid;
 
+  /*initialize current working directory */
   struct dir *working_dir = thread_current()->working_dir;
   if (working_dir == NULL)
     msg->working_dir = dir_open_root();

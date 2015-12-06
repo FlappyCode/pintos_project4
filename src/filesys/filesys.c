@@ -76,7 +76,7 @@ get_directory_from_path(char *file_name, char *full_path)
     {
       directory = dir_open_root ();
     }
-  else
+  else/* relative path */
     {
       if(thread_current()->working_dir == NULL)
 	{
@@ -110,6 +110,13 @@ get_directory_from_path(char *file_name, char *full_path)
       dir_close(directory);
       return NULL;
     }
+    if (!inode_is_dir(inode)) 
+    /*we find a file but we are not at the end of path */
+    {
+      inode_close(inode);
+      return NULL;
+    }
+
     dir_close(directory);
     directory = dir_open(inode);
   }
@@ -124,6 +131,7 @@ get_directory_from_path(char *file_name, char *full_path)
   }
 }
 
+/* return true if name is '/'*/
 static bool is_root(const char *name) 
 {
   char temp_name[NAME_MAX+1];
@@ -143,6 +151,7 @@ filesys_done (void)
   free_map_close ();
 }
 
+/* create a file according to inode_sector and initial_size*/
 static struct inode*
 file_create(block_sector_t inode_sector,off_t initial_size)
 {
@@ -264,6 +273,9 @@ filesys_remove (const char *name_)
   }
 }
 
+/*change current direcotry to NAME
+  return true if successful
+  false if NAME is not valid */
 bool
 filesys_chdir (const char *name) 
 {

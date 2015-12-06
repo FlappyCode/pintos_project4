@@ -219,7 +219,8 @@ remove_inode (struct inode *inode)
     block_sector_t sector = disk_inode->sectors[i];
     if (sector != 0) 
     {
-      int level = (i >= (int) DATA_BLOCK_CNT) + (i >= (int) (DATA_BLOCK_CNT + INDIRECT_BLOCK_CNT));
+      int level = (i >= (int) DATA_BLOCK_CNT) + \
+      (i >= (int) (DATA_BLOCK_CNT + INDIRECT_BLOCK_CNT));
       switch (level)
       { 
         case 0 :
@@ -339,7 +340,8 @@ inode_remove (struct inode *inode)
    The cache slot returned will be locked, exclusively if "is_write" is
    true, or non-exclusively if "is_write" is false. */
 static bool
-read_block (struct inode *inode, off_t offset, bool is_write, struct cache_entry **ce_result) 
+read_block (struct inode *inode, off_t offset, 
+  bool is_write, struct cache_entry **ce_result) 
 {
   ASSERT (inode != NULL);
   ASSERT (offset >= 0);
@@ -371,7 +373,8 @@ read_block (struct inode *inode, off_t offset, bool is_write, struct cache_entry
     {
       /* Double indirect block. */
       sector_off -= SECTOR_PTR_CNT * INDIRECT_BLOCK_CNT;
-      sector_offs[0] = DATA_BLOCK_CNT + INDIRECT_BLOCK_CNT + sector_off / (SECTOR_PTR_CNT * SECTOR_PTR_CNT);
+      sector_offs[0] = DATA_BLOCK_CNT + INDIRECT_BLOCK_CNT + \
+                  sector_off / (SECTOR_PTR_CNT * SECTOR_PTR_CNT);
       sector_offs[1] = sector_off / SECTOR_PTR_CNT;
       sector_offs[2] = sector_off % SECTOR_PTR_CNT;
       level = 3;
