@@ -15,14 +15,13 @@ typedef int mapid_t;
 struct mmap_file {
 	struct list_elem elem; /* elem used for list. */
 	mapid_t mapid; /* Mmap id. */
-	struct spt_entry *spe; /* Corresponding supplemental page table entry. */
+	//struct spt_entry *spe; /* Corresponding supplemental page table entry. */
+	struct file *file;
+	uint8_t *addr;
+	size_t page_cnt;
 };
 
 void syscall_init (void);
-
-void acquire_file_lock (void);
-bool try_acquire_file_lock (void);
-void release_file_lock (void);
 
 void halt (void);
 void exit (int status);

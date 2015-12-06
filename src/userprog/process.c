@@ -206,9 +206,7 @@ process_exit (void)
   
   if(cur->exec_file != NULL)
   {
-    acquire_file_lock ();
     file_close (cur->exec_file);
-    release_file_lock ();
   }
 
   /* free itself if it doesn't have a parent */
@@ -357,7 +355,6 @@ load (struct exec_msg *msg, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  acquire_file_lock ();
   file = file_open(filesys_open (msg->prog_name));
   
   if (file != NULL) 
@@ -453,7 +450,6 @@ load (struct exec_msg *msg, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   msg->load_complete = success;
-  release_file_lock ();
   sema_up(&msg->load_sema);
   return success;
 }

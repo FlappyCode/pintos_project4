@@ -21,8 +21,6 @@
 #define STACK_MAX ((void *) (1 << 23)) /* Max stack is 8MB. */
 #define LOW_USER_BASE ((void *) 0x08048000)
 
-struct lock file_lock; /* Global lock for filesystem. */
-
 static void syscall_handler (struct intr_frame *);
 static int get_user (const uint8_t *uaddr);
 static bool put_user (uint8_t *udst, uint8_t byte);
@@ -132,25 +130,7 @@ get_arg (void *sp, int n)
 void
 syscall_init (void) 
 {
-  lock_init (&file_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-}
-
-void 
-acquire_file_lock (void)
-{ 
-  lock_acquire (&file_lock);
-}
-
-bool 
-try_acquire_file_lock (void)
-{ 
-  return lock_try_acquire (&file_lock);
-}
-
-void release_file_lock (void)
-{ 
-  lock_release (&file_lock);
 }
 
 static void
@@ -333,18 +313,14 @@ wait (pid_t pid)
 bool 
 create (const char *file, unsigned initial_size)
 { 
-  acquire_file_lock ();
   int success = filesys_create (file, initial_size, false);
-  release_file_lock ();
   return success;
 }
 
 bool 
 remove (const char *file)
 { 
-  acquire_file_lock ();
   int success = filesys_remove (file);
-  release_file_lock ();
   return success;
 }
 
@@ -404,11 +380,9 @@ int
 open (const char *file)
 { 
   int fd;
-  acquire_file_lock ();
   struct inode *inode = filesys_open (file);
   if (inode == NULL)
   {
-    release_file_lock ();
     return -1;
   }
   else
@@ -418,7 +392,6 @@ open (const char *file)
     else
       fd = add_directory(dir_open(inode));
   }
-  release_file_lock ();
   return fd;
 }
 
@@ -430,9 +403,7 @@ filesize (int fd)
     return -1;
   if (pf->file == NULL)
     return -1;
-  acquire_file_lock ();
   int len = file_length (pf->file);
-  release_file_lock ();
   return len;
 }
 
@@ -455,9 +426,8 @@ read (int fd, void *buffer, unsigned length)
     return -1;
   if (pf->file == NULL)
     return -1;
-  acquire_file_lock ();
+
   int bytes = file_read(pf->file, buffer, length);
-  release_file_lock ();
   return bytes;
 }
 
@@ -475,9 +445,8 @@ write (int fd, const void *buffer, unsigned length)
     return -1;
   if (pf->file == NULL)
     return -1;
-  acquire_file_lock ();
+
   int bytes = file_write(pf->file, buffer, length);
-  release_file_lock ();
   return bytes;
 }
 
@@ -489,9 +458,8 @@ seek (int fd, unsigned position)
     return;
   if (pf->file == NULL)
     return;
-  acquire_file_lock ();
+
   file_seek(pf->file, position);
-  release_file_lock ();
   return;
 }
 
@@ -503,9 +471,8 @@ tell (int fd)
     return -1;
   if (pf->file == NULL)
     return -1;
-  acquire_file_lock ();
+
   unsigned result = file_tell (pf->file);
-  release_file_lock ();
   return result;
 }
 
@@ -521,10 +488,8 @@ close (int fd)
   	pf = list_entry (e, struct process_file, elem);
   	if (pf->fd == fd) 
   	{
-  	  acquire_file_lock ();
       file_close (pf->file);
       dir_close(pf->dir);
-      release_file_lock ();
       list_remove (&pf->elem);
       free (pf);
       return;
@@ -542,7 +507,6 @@ close_all (void)
   struct list_elem *next;
   struct process_file *pf;
 
-  acquire_file_lock ();
   while(e != list_end (&t->file_list))
   { 
   	next = list_next (e);
@@ -553,7 +517,6 @@ close_all (void)
     free (pf);
     e = next;
   }
-  release_file_lock ();
   
   return;
 }
@@ -566,11 +529,10 @@ mapid_t mmap (int fd, void *addr)
     return -1;
   if (pf->file == NULL)
     return -1;
-  struct file *f = pf->file;
   struct thread *t = thread_current();
   
   /* Check fd and file pointer .*/
-  if (fd == 1 || fd == 0 || f == NULL)
+  if (fd == 1 || fd == 0)
     return -1;
 
   /* Check addr .*/
@@ -578,17 +540,28 @@ mapid_t mmap (int fd, void *addr)
       || ((int)addr) % PGSIZE != 0 || ((int) addr) == 0)
     return -1;
 
-  acquire_file_lock ();
-  /* Obtain a separate and independent reference to the file. */
-  f = file_reopen(f);
-  size_t read_bytes = file_length(f);
-  release_file_lock ();
-
-  if ((f == NULL) || read_bytes == 0)
+  struct mmap_file *mmap = malloc (sizeof (struct mmap_file));
+  if (mmap == NULL)
     return -1;
 
-  int32_t ofs = 0;
+  /* Obtain a separate and independent reference to the file. */
+  mmap->file = file_reopen (pf->file);
+  size_t read_bytes = file_length (mmap->file);
+
+  if ((mmap->file == NULL) || read_bytes == 0)
+  {
+    free (mmap);
+    return -1;
+  }
+
+  mmap->addr = addr;
+  mmap->page_cnt = 0;
+
   t->map_files++;
+  mmap->mapid = t->map_files;
+  list_push_back (&t->mmap_list, &mmap->elem);
+  
+  int32_t ofs = 0;
   while (read_bytes > 0) 
   {
     /* Calculate how to fill this page.
@@ -596,53 +569,29 @@ mapid_t mmap (int fd, void *addr)
     and zero the final PAGE_ZERO_BYTES bytes. */
     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 
-    struct mmap_file *mmap = malloc (sizeof (struct mmap_file));
-    if (mmap != NULL && spt_add (VM_MMAP_TYPE, addr, true, f, ofs, page_read_bytes))
+    if (spt_add (VM_MMAP_TYPE, addr, true, mmap->file, ofs, page_read_bytes))
     {
       /* Successfully allocate a supplemental page table entry. */
       struct spt_entry *spe = spt_get (addr);
       ASSERT (spe != NULL);
-      mmap->mapid = t->map_files;
-      mmap->spe = spe;
-      list_push_back (&t->mmap_list, &mmap->elem);
+      mmap->page_cnt++;
+
+      /* Advance. */
+      read_bytes -= page_read_bytes;
+      addr += PGSIZE;
+      ofs += page_read_bytes;
     }
     else
     { 
       /* Fail to allocate a supplemental page table entry. */
       /* Must clear all the mmap_file and supplemental page table 
          entry related to this file allocated previously. */ 
-      if (mmap != NULL)
-        free (mmap);
-
-      struct list_elem *e = NULL;
-      struct list_elem *prev = NULL;
-      for (e = list_rbegin (&t->mmap_list) ; e != list_rend (&t->mmap_list) ; )
-      { 
-        prev = list_prev (e);
-        if (mmap->mapid == t->map_files)
-        {
-          ASSERT (mmap->spe->fte != NULL);
-          hash_delete(&t->spt_table, &mmap->spe->elem);
-          list_remove(&mmap->elem);
-          free (mmap->spe);
-          free (mmap);
-        }
-        else
-          break;
-        e = prev;
-      }
-      ASSERT (f != NULL);
-      file_close (f);
+      munmap (mmap->mapid);
       return -1;
     }
-
-    /* Advance. */
-    read_bytes -= page_read_bytes;
-    addr += PGSIZE;
-    ofs += page_read_bytes;
   }
   
-  return t->map_files;
+  return mmap->mapid;
 }
 
 /* Munmap system call. */ 
@@ -652,42 +601,42 @@ void munmap (mapid_t mapping)
   struct list_elem *e = list_begin (&t->mmap_list);
   struct list_elem *next;
   struct mmap_file *mmap;
-  struct file *prev_file = NULL;
 
-  acquire_file_lock ();
   while(e != list_end (&t->mmap_list))
   { 
     next = list_next (e);
     mmap = list_entry (e, struct mmap_file, elem);
     if (mmap->mapid == mapping)
     {
-      struct spt_entry *spe = mmap->spe;
-      /* Must acquire frame lock first to avoid race. */
-      spt_lock_frame (spe);
-      if (spe->fte != NULL)
+      list_remove (&mmap->elem);
+      while (mmap->page_cnt-- > 0)
       {
-        if (pagedir_is_dirty (t->pagedir, spe->u_addr))
+        struct spt_entry *spe = spt_get (mmap->addr);
+        ASSERT (spe != NULL);
+        /* Must acquire frame lock first to avoid race. */
+        spt_lock_frame (spe);
+        if (spe->fte != NULL)
         {
-          /* The page needs to be written back if it has been modified. */ 
-          file_write_at (spe->file, spe->fte->k_addr, spe->file_bytes, spe->ofs);
+          pagedir_clear_page (t->pagedir, spe->u_addr);
+          if (pagedir_is_dirty (t->pagedir, spe->u_addr))
+          {
+            /* The page needs to be written back if it has been modified. */ 
+            file_write_at (spe->file, spe->fte->k_addr, spe->file_bytes, spe->ofs);
+          }
+          frame_release_and_free (spe->fte);
         }
-        frame_release_and_free (spe->fte);
+        hash_delete (&t->spt_table, &spe->elem);
+        free (spe);
+        mmap->addr += PGSIZE;
       }
-      prev_file = spe->file;
-      hash_delete(&t->spt_table, &spe->elem);
-      list_remove(&mmap->elem);
-      free (spe);
+      file_close (mmap->file);
       free (mmap);
+      return;
     }
-    else
-      break;
     e = next;
   }
 
-  if (prev_file != NULL)
-    file_close(prev_file);
-  release_file_lock ();
-
+  return;
 }
 
 /* Unmap all the mmap the process holds. */
@@ -698,45 +647,15 @@ void close_all_mmap(void)
   struct list_elem *e = list_begin (&t->mmap_list);
   struct list_elem *next;
   struct mmap_file *mmap;
-  struct file *prev_file = NULL;
-  mapid_t prev = -1;
 
-  acquire_file_lock ();
   while(e != list_end (&t->mmap_list))
   { 
     next = list_next (e);
     mmap = list_entry (e, struct mmap_file, elem);
-    struct spt_entry *spe = mmap->spe;
-    
-    /* Must acquire frame lock first to avoid race. */
-    spt_lock_frame (spe);
-    if (spe->fte != NULL)
-    {
-      if (pagedir_is_dirty (t->pagedir, spe->u_addr))
-      {
-        /* The page needs to be written back if it has been modified. */ 
-        file_write_at (spe->file, spe->fte->k_addr, spe->file_bytes, spe->ofs);
-      }
-      frame_release_and_free (spe->fte);
-    }
-    
-    if(mmap->mapid != prev)
-    {
-      if (prev_file != NULL)
-        file_close(prev_file);
-      prev_file = spe->file;
-      prev = mmap->mapid;
-    }
-    
-    hash_delete(&t->spt_table, &spe->elem);
-    list_remove(&mmap->elem);
-    free (spe);
-    free (mmap);
+    munmap (mmap->mapid);
     e = next;
   }
-  if (prev_file != NULL)
-    file_close(prev_file);
-  release_file_lock ();
+  return;
 }
 
 

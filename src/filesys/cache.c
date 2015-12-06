@@ -2,6 +2,8 @@
 #include <stdbool.h>
 #include <debug.h>
 #include "threads/synch.h"
+#include "threads/thread.h"
+#include "threads/malloc.h"
 #include "devices/timer.h"
 #include "filesys/filesys.h"
 #include "filesys/cache.h"
@@ -22,9 +24,22 @@ struct cache_entry
 #define CACHE_SIZE 64
 struct cache_entry cache[CACHE_SIZE];
 
+/* Protect clock hand .*/
 struct lock cache_lock;
-
 int hand;
+
+struct readahead_s
+{
+	struct list_elem elem;
+	block_sector_t sector;
+};
+
+static struct list readahead_list;
+static struct lock readahead_lock;
+static struct condition need_readahead;
+
+static void cache_readahead_daemon (void *aux UNUSED);
+static void cache_flush_daemon (void *aux UNUSED);
 
 void cache_init (void)
 {	
@@ -45,6 +60,13 @@ void cache_init (void)
 
   lock_init (&cache_lock);
   hand = -1;
+
+  thread_create ("cache_flush_daemon", PRI_MIN, cache_flush_daemon, NULL);
+
+  list_init (&readahead_list);
+  lock_init (&readahead_lock);
+  cond_init (&need_readahead);
+  thread_create ("cache_readahead_daemon", PRI_MIN, cache_readahead_daemon, NULL);
 }
 
 struct cache_entry* 
@@ -54,7 +76,6 @@ cache_alloc_and_lock (block_sector_t sector, bool exclusive)
 	int i;
 
 begin:
-	lock_acquire (&cache_lock);
 
 	/* Sector may have been cached, check it .*/ 
 	for (i = 0 ; i < CACHE_SIZE ; i++)
@@ -66,8 +87,6 @@ begin:
 			lock_release (&ce->l);
 			continue;
 		}
-
-		lock_release (&cache_lock);
 
 		ce->waiters++;
 		shared_lock_acquire (&ce->sl, exclusive);
@@ -90,8 +109,6 @@ begin:
 			continue;
 		}
 
-		lock_release (&cache_lock);
-
 		ce->sector = sector;
 		ce->accessed = false;
   	ce->dirty = false;
@@ -103,6 +120,7 @@ begin:
 		return ce;
 	}
 
+	lock_acquire (&cache_lock);
 	/* Try to evict one entry. */
 	for (i = 0; i < CACHE_SIZE * 2; i++)
 	{	
@@ -254,5 +272,50 @@ cache_flush (void)
     	ce->dirty = false; 
     }
     cache_unlock (ce, true);
+  }
+}
+
+void
+cache_readahead_add (block_sector_t sector) 
+{
+  struct readahead_s *ras = malloc (sizeof *ras);
+  if (ras == NULL)
+    return;
+ 	ras->sector = sector;
+
+  lock_acquire (&readahead_lock); 
+  list_push_back (&readahead_list, &ras->elem);
+  cond_signal (&need_readahead, &readahead_lock);
+  lock_release (&readahead_lock);
+}
+
+static void 
+cache_flush_daemon (void *aux UNUSED)
+{	
+	while (true)
+	{	
+		timer_msleep (20 * 1000);
+		cache_flush ();
+	}
+}
+
+static void
+cache_readahead_daemon (void *aux UNUSED) 
+{
+  while (true) 
+  {	
+    lock_acquire (&readahead_lock);
+    while (list_empty (&readahead_list)) 
+    	cond_wait (&need_readahead, &readahead_lock);
+    
+    ASSERT (!list_empty (&readahead_list));
+    struct readahead_s *ras = list_entry (list_pop_front (&readahead_list),
+                             struct readahead_s, elem);
+    lock_release (&readahead_lock);
+
+    struct cache_entry *ce = cache_alloc_and_lock (ras->sector, false);
+    cache_get_data (ce, false);
+    cache_unlock (ce, false);
+    free (ras);
   }
 }

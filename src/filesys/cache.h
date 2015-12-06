@@ -10,4 +10,5 @@ void* cache_get_data (struct cache_entry* ce, bool zero);
 void cache_dealloc (block_sector_t sector);
 void cache_mark_dirty (struct cache_entry *ce);
 void cache_flush (void);
+void cache_readahead_add (block_sector_t sector);
 #endif

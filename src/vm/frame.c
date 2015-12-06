@@ -54,10 +54,6 @@ frame_alloc_and_lock (struct spt_entry *spe)
   int try_num;
   for (try_num = 0 ; try_num < 3 ; try_num++)
   {
-    /* Since we will modify the frame table, 
-       acquire global lock first. */ 
-    lock_acquire (&frame_table_lock);
-
     /* First try to get free frame. */
     int i;
     struct frame_table_entry *fte;
@@ -70,7 +66,6 @@ frame_alloc_and_lock (struct spt_entry *spe)
       if (fte->spe == NULL) 
         {
           fte->spe = spe;
-          lock_release (&frame_table_lock);
           return fte;
         } 
       lock_release (&fte->l);
@@ -78,6 +73,9 @@ frame_alloc_and_lock (struct spt_entry *spe)
 
     /* If we don't have free frame, try to evict. */
     struct spt_entry *spe_tmp = NULL;
+
+    /* Acquire global lock first tp protect clock hand. */ 
+    lock_acquire (&frame_table_lock);
 
     /* Each time we scan frame table table twice. */
     for (i = 0 ; i < 2 * frame_cnt ; i++) 

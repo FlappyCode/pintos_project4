@@ -204,7 +204,6 @@ filesys_create (const char *name_, off_t initial_size, bool isdir)
   }
 
   dir_close (dir);
-  //printf("done create\n");
   return success;
 }
 
