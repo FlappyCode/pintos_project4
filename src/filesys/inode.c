@@ -13,13 +13,18 @@
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
-#define SECTOR_PTR_SIZE (sizeof (block_sector_t))
-#define SECTOR_PTR_CNT (BLOCK_SECTOR_SIZE / SECTOR_PTR_SIZE)
+#define SECTOR_PTR_CNT (BLOCK_SECTOR_SIZE / sizeof (block_sector_t))
+/* Number of meta data. */
 #define META_PTR_CNT 3
+/* Number of data sectors. */
 #define BLOCK_PTR_CNT (SECTOR_PTR_CNT - META_PTR_CNT)
-#define INDIRECT_BLOCK_CNT 10
+/* Number of indirect data sectors. */ 
+#define INDIRECT_BLOCK_CNT 16 
+/* Number of double indirect data sectors. */
 #define DOUBLE_INDIRECT_BLOCK_CNT 1
+/* Number of direct data sectors. */
 #define DATA_BLOCK_CNT (BLOCK_PTR_CNT - INDIRECT_BLOCK_CNT - DOUBLE_INDIRECT_BLOCK_CNT)
+/* Max length of inode, in bytes .*/
 #define INODE_MAX_LENGTH ((DATA_BLOCK_CNT + \
                             SECTOR_PTR_CNT * INDIRECT_BLOCK_CNT + \
                             SECTOR_PTR_CNT * SECTOR_PTR_CNT * DOUBLE_INDIRECT_BLOCK_CNT) \
