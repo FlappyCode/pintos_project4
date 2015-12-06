@@ -337,6 +337,7 @@ cond_broadcast (struct condition *cond, struct lock *lock)
     cond_signal (cond, lock);
 }
 
+/* Init shared lock. */
 void 
 shared_lock_init (struct shared_lock *sl, struct lock *l)
 { 
@@ -348,6 +349,9 @@ shared_lock_init (struct shared_lock *sl, struct lock *l)
   sl->i = 0;
 }
 
+/* Acquire shared lock. */
+/* If exclusive is true, acquire exclusive lock for writers. 
+Else, acquire non-exclusive lock for readers. */
 void 
 shared_lock_acquire (struct shared_lock *sl, bool exclusive)
 { 
@@ -365,7 +369,8 @@ shared_lock_acquire (struct shared_lock *sl, bool exclusive)
     sl->i++;
   }
 }
-
+/* Try to acquire shared lock.
+Return true if successful, return false if unsuccessful. */
 bool 
 shared_lock_try_acquire (struct shared_lock *sl, bool exclusive)
 { 
@@ -392,6 +397,7 @@ shared_lock_try_acquire (struct shared_lock *sl, bool exclusive)
   }
 }
 
+/* Release shared lock. */
 void 
 shared_lock_release (struct shared_lock *sl, bool exclusive)
 { 

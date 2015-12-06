@@ -50,17 +50,18 @@ struct inode
     block_sector_t sector;              /* Sector number of disk location. */
     int open_cnt;                       /* Number of openers. */
     bool removed;                       /* True if deleted, false otherwise. */
-    struct lock inode_lock;
+    struct lock inode_lock;             /* Lock used for directory. */
 
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
     struct lock dw_lock;                /* Lock for deny write. */
     struct condition no_writers;        /* Condition indicating no writers. */ 
-    int writers;                        /* Can only deny write when there're no writers. */
+    int writers;                        /* Can only deny write when there's no writer. */
   };
 
 /* List of open inodes, so that opening a single inode twice
    returns the same `struct inode'. */
 static struct list open_inodes;
+/* Global lock that protects "open_inodes". */
 static struct lock open_inodes_lock;
 
 /* Initializes the inode module. */
@@ -71,6 +72,9 @@ inode_init (void)
   lock_init (&open_inodes_lock);
 }
 
+/* Initialize an inode, immediately open it and return the pointer. */
+/* Return NULL if open inode unsuccessful. */
+/* "is_dir" indicates whether to create a directory inode or a file inode. */
 struct inode *
 inode_create (block_sector_t sector, bool is_dir)
 {
@@ -91,10 +95,14 @@ inode_create (block_sector_t sector, bool is_dir)
 
   struct inode* inode = inode_open (sector);
   if (inode == NULL)
+  {
     cache_dealloc (sector);
+    free_map_release (sector, 1);
+  }
   return inode;
 }
 
+/* Check whether this inode is a directory inode. */
 bool 
 inode_is_dir (struct inode *inode)
 {
@@ -193,6 +201,8 @@ inode_get_inumber (const struct inode *inode)
   return inode->sector;
 }
 
+/* Deallocate given "inode" and anything it points to. */
+/* Deallocate the corresponding cache slot too, if any. */
 static void
 remove_inode (struct inode *inode)
 { 
@@ -209,12 +219,14 @@ remove_inode (struct inode *inode)
       { 
         case 0 :
         {
+          /* Deallocate data block. */
           cache_dealloc (sector);
           free_map_release (sector, 1);
           break;
         }
         case 1 :
         {
+          /* Deallocate indirect block. */
           struct cache_entry *ce1 = cache_alloc_and_lock (sector, true);
           block_sector_t *disk_inode1 = cache_get_data (ce1, false);
           int j;
@@ -234,6 +246,7 @@ remove_inode (struct inode *inode)
         }
         case 2 :
         {
+          /* Deallocate double indirect block. */
           struct cache_entry *ce2 = cache_alloc_and_lock (sector, true);
           block_sector_t *disk_inode2 = cache_get_data (ce2, false);
           int m;
@@ -311,14 +324,15 @@ inode_remove (struct inode *inode)
   inode->removed = true;
 }
 
-/* Retrieves the data block for the given byte OFFSET in INODE,
-   setting *DATA_BLOCK to the block.
+/* Gets the cache slot for the given byte OFFSET in INODE,
+   setting *"ce_result" to the result.
    Returns true if successful, false on failure.
-   If ALLOCATE is false, then missing blocks will be successful
-   with *DATA_BLOCk set to a null pointer.
-   If ALLOCATE is true, then missing blocks will be allocated.
-   The block returned will be locked, normally non-exclusively,
-   but a newly allocated block will have an exclusive lock. */
+   If "is_write" is false, then missing sector will be successful
+   with *"ce_result" set to a null pointer. This means we support 
+   sparse file.
+   If "is_write" is true, then missing sector will be allocated.
+   The cache slot returned will be locked, exclusively if "is_write" is
+   true, or non-exclusively if "is_write" is false. */
 static bool
 read_block (struct inode *inode, off_t offset, bool is_write, struct cache_entry **ce_result) 
 {
@@ -326,6 +340,7 @@ read_block (struct inode *inode, off_t offset, bool is_write, struct cache_entry
   ASSERT (offset >= 0);
   ASSERT (offset <= (off_t) INODE_MAX_LENGTH);
 
+  /* First calculate offsets in different levels. */
   off_t sector_offs[3];
   int level;
   
@@ -333,6 +348,7 @@ read_block (struct inode *inode, off_t offset, bool is_write, struct cache_entry
   
   if (sector_off < (off_t) DATA_BLOCK_CNT) 
   { 
+    /* Direct data block. */
     sector_offs[0] = sector_off;
     level = 1;
   }
@@ -341,12 +357,14 @@ read_block (struct inode *inode, off_t offset, bool is_write, struct cache_entry
     sector_off -= DATA_BLOCK_CNT;
     if (sector_off < (off_t) (SECTOR_PTR_CNT * INDIRECT_BLOCK_CNT))
     {
+      /* Indirect block. */
       sector_offs[0] = DATA_BLOCK_CNT + sector_off / SECTOR_PTR_CNT;
       sector_offs[1] = sector_off % SECTOR_PTR_CNT;
       level = 2;
     }
     else
     {
+      /* Double indirect block. */
       sector_off -= SECTOR_PTR_CNT * INDIRECT_BLOCK_CNT;
       sector_offs[0] = DATA_BLOCK_CNT + INDIRECT_BLOCK_CNT + sector_off / (SECTOR_PTR_CNT * SECTOR_PTR_CNT);
       sector_offs[1] = sector_off / SECTOR_PTR_CNT;
@@ -366,10 +384,14 @@ read_block (struct inode *inode, off_t offset, bool is_write, struct cache_entry
     ce = cache_alloc_and_lock (sector, false);
     data = cache_get_data (ce, false);
     next_sector = &data[sector_offs[this_level]];
+
+    /* Check whether next level's sector is allocated. */
     if (*next_sector != 0)
     {
       if (this_level == level - 1) 
       {
+        /* We find the block we need. */
+        /* Do read ahead. */
         if ((this_level == 0 && sector_offs[this_level] < (off_t) DATA_BLOCK_CNT - 1)
           || (this_level > 0 && sector_offs[this_level] < (off_t) SECTOR_PTR_CNT - 1)) 
         {
@@ -391,24 +413,26 @@ read_block (struct inode *inode, off_t offset, bool is_write, struct cache_entry
     
     cache_unlock (ce, false);
 
+    /* Support sparse file. */
     if (!is_write) 
     {
       *ce_result = NULL;
       return true;
     }
 
+    /* We need to allocate a new sector. */
     ce = cache_alloc_and_lock (sector, true);
     data = cache_get_data (ce, false);
 
     next_sector = &data[sector_offs[this_level]];
+    /* Others may just allocate this sector, double check. */
     if (*next_sector != 0)
     { 
-      sector = *next_sector;
       cache_unlock (ce, true);
-      this_level++;
       continue;
     }
 
+    /* Allocate the sector in disk. */
     if (!free_map_allocate (1, next_sector))
     {
       cache_unlock (ce, true);
@@ -419,16 +443,19 @@ read_block (struct inode *inode, off_t offset, bool is_write, struct cache_entry
     cache_mark_dirty (ce);
 
     next_ce = cache_alloc_and_lock (*next_sector, true);
+    /* Zero out the new sector. */
     cache_get_data (next_ce, true);
 
     cache_unlock (ce, true);
 
-    if (this_level == level-1) 
+    /* If this is the final level, return the new sector. */
+    if (this_level == level - 1) 
     {
       *ce_result = next_ce;
       return true;
     }
 
+    /* Not the final level, continue. */
     sector = *next_sector;
     cache_unlock (next_ce, true);
     this_level++;
@@ -486,9 +513,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
 
 /* Writes SIZE bytes from BUFFER into INODE, starting at OFFSET.
    Returns the number of bytes actually written, which may be
-   less than SIZE if end of file is reached or an error occurs.
-   (Normally a write at end of file would extend the inode, but
-   growth is not yet implemented.) */
+   less than SIZE if an error occurs. Return 0 if write is denied.
+   A write at end of file would extend the inode. */
 off_t
 inode_write_at (struct inode *inode, const void *buffer_, off_t size,
                 off_t offset) 
@@ -499,6 +525,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   const uint8_t *buffer = buffer_;
   off_t bytes_written = 0;
 
+  /* Check whether write is allowed. */
   lock_acquire (&inode->dw_lock);
   if (inode->deny_write_cnt > 0) 
   {
@@ -549,6 +576,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   }
   cache_unlock (ce1, true);
 
+  /* Finish writing, others can deny write now. */
   lock_acquire (&inode->dw_lock);
   if (--inode->writers == 0)
     cond_signal (&inode->no_writers, &inode->dw_lock);
@@ -563,6 +591,7 @@ void
 inode_deny_write (struct inode *inode) 
 {
   lock_acquire (&inode->dw_lock);
+  /* Only can deny write when there's no writer. */
   while (inode->writers > 0)
     cond_wait (&inode->no_writers, &inode->dw_lock);
   inode->deny_write_cnt++;

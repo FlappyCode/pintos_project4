@@ -15,10 +15,10 @@ struct frame_table_entry* frame_table;
 int frame_cnt;
 
 /* Global lock for frame table. 
-   Used when modifying frame table. */
+   Protect clock hand. */
 struct lock frame_table_lock;
 
-/* hand for clock algorithm .*/
+/* Hand for clock algorithm .*/
 int hand; 
 
 /* Init frame table .*/

@@ -166,7 +166,6 @@ file_create(block_sector_t inode_sector,off_t initial_size)
 bool
 filesys_create (const char *name_, off_t initial_size, bool isdir) 
 {
-  //printf("name = %s, dir=%d\n", name_, isdir);
   block_sector_t inode_sector = 0;
   char *name = (char *)name_;
   struct inode *inode = NULL;
